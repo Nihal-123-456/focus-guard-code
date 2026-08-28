@@ -1,4 +1,3 @@
-import React from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { colors, typography, spacing, radius } from '../theme';
 
@@ -55,6 +54,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                       width: barWidth,
                     },
                   ]}
+                  accessibilityLabel={`${d.label}: ${formatValue?.(d.value) ?? d.value.toString()}`}
                 />
               </View>
             </View>

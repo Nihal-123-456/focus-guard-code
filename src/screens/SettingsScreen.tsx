@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -232,12 +232,12 @@ export function SettingsScreen() {
                     text: 'Reset',
                     style: 'destructive',
                     onPress: async () => {
-                      const { AsyncStorage } = await import(
+                      const AsyncStorage = (await import(
                         '@react-native-async-storage/async-storage'
-                      );
+                      )).default;
                       const keys = await AsyncStorage.getAllKeys();
-                      const our = keys.filter((k) => k.startsWith('@focusguard:'));
-                      await AsyncStorage.multiRemove(our as string[]);
+                      const our = keys.filter((k: string) => k.startsWith('@focusguard:'));
+                      await AsyncStorage.multiRemove(our);
                       Alert.alert('Done', 'All data erased. Restart the app.');
                     },
                   },

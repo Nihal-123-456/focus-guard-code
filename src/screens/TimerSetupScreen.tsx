@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, typography, spacing, radius, shadows } from '../theme';
 import { useBlacklistStore } from '../data/blacklistStore';
@@ -17,9 +18,12 @@ import { useSettingsStore } from '../data/settingsStore';
 import { AppBlocker } from '../native/AppBlocker';
 import { DurationPicker } from '../components/DurationPicker';
 import { formatDurationHuman, formatTime } from '../utils/time';
+import type { HomeStackParamList } from '../navigation/AppNavigator';
+
+type Nav = NativeStackNavigationProp<HomeStackParamList>;
 
 export function TimerSetupScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
   const blacklist = useBlacklistStore();
   const timer = useTimerStore();
   const settings = useSettingsStore();

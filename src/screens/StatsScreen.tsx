@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -84,11 +84,6 @@ export function StatsScreen() {
   const peakHour = useMemo(() => peakFocusHour(stats.hourly), [stats.hourly]);
 
   const recentSessions = useMemo(() => history.entries.slice(0, 5), [history.entries]);
-
-  const onRefresh = useCallback(() => {
-    history.hydrate();
-    appList.refresh().catch(() => undefined);
-  }, [history, appList]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

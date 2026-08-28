@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/blocking_overlay_background"
+    android:clickable="true"
+    android:focusable="true"
+    android:keepScreenOn="true"
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/blockingIcon"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="18dp"
+            android:text="LOCKED"
+            android:textColor="@color/blocking_overlay_accent"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/blockingTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:gravity="center"
+            android:text="@string/blocking_overlay_title"
+            android:textColor="@color/blocking_overlay_text"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/blockingMessage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp"
+            android:gravity="center"
+            android:lineSpacingExtra="2dp"
+            android:text="@string/blocking_overlay_message"
+            android:textColor="@color/blocking_overlay_subtext"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/blockingPackage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@color/blocking_overlay_surface"
+            android:paddingLeft="14dp"
+            android:paddingTop="10dp"
+            android:paddingRight="14dp"
+            android:paddingBottom="10dp"
+            android:textColor="@color/blocking_overlay_text"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/blockingHint"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:lineSpacingExtra="2dp"
+            android:text="@string/blocking_overlay_hint"
+            android:textColor="@color/blocking_overlay_subtext"
+            android:textSize="13sp" />
+    </LinearLayout>
+</FrameLayout>

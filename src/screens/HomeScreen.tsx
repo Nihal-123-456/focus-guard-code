@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -21,8 +21,7 @@ import { AppBlocker } from '../native/AppBlocker';
 import { PermissionCard } from '../components/PermissionCard';
 import { TimerPill } from '../components/TimerPill';
 import { StatCard } from '../components/StatCard';
-import { EmptyState } from '../components/EmptyState';
-import { formatDurationHuman, formatTime, formatRelativeUntil, MS_PER_HOUR } from '../utils/time';
+import { formatDurationHuman, formatTime, formatRelativeUntil } from '../utils/time';
 import type { HomeStackParamList } from '../navigation/AppNavigator';
 
 type Nav = NativeStackNavigationProp<HomeStackParamList>;

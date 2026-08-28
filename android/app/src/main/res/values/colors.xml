@@ -3,4 +3,9 @@
   <color name="iconBackground">#F5F1EA</color>
   <color name="colorPrimary">#023c69</color>
   <color name="colorPrimaryDark">#F5F1EA</color>
+  <color name="blocking_overlay_background">#0E1726</color>
+  <color name="blocking_overlay_surface">#162033</color>
+  <color name="blocking_overlay_text">#F7FAFC</color>
+  <color name="blocking_overlay_subtext">#C9D4E3</color>
+  <color name="blocking_overlay_accent">#FFB703</color>
 </resources>

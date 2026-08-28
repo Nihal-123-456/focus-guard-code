@@ -1,6 +1,9 @@
 <resources>
   <string name="app_name">FocusGuard</string>
   <string name="accessibility_service_description">Allows FocusGuard to monitor app launches during focus sessions.</string>
+  <string name="blocking_overlay_title">FocusGuard is blocking this app</string>
+  <string name="blocking_overlay_message">This app is locked for the current focus session. Return to FocusGuard and wait until the timer ends.</string>
+  <string name="blocking_overlay_hint">If this feels wrong, open FocusGuard from the launcher to check your session status.</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
 </resources>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,7 +17,6 @@ import { useTimerStore } from '../data/timerStore';
 import { useSettingsStore } from '../data/settingsStore';
 import { ScheduleCard } from '../components/ScheduleCard';
 import { EmptyState } from '../components/EmptyState';
-import { formatRelativeUntil } from '../utils/time';
 import type { SchedulesStackParamList } from '../navigation/AppNavigator';
 
 type Nav = NativeStackNavigationProp<SchedulesStackParamList>;

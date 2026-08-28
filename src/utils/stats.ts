@@ -2,7 +2,7 @@
  * Stats calculation helpers — pure functions over HistoryEntry[].
  */
 import type { HistoryEntry, AggregatedStats, StatsRange } from '../types';
-import { MS_PER_DAY, MS_PER_HOUR } from './time';
+import { MS_PER_DAY } from './time';
 
 /** Get the start of the day (00:00:00 local) for a given epoch ms. */
 function startOfDay(epochMs: number): number {
