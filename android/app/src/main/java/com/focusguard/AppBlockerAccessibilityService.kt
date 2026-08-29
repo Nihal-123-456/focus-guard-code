@@ -1,6 +1,8 @@
 package com.focusguard
 
 import android.accessibilityservice.AccessibilityService
+import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Handler
@@ -17,6 +19,8 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_LAST_BLOCKED_PACKAGE = "last_blocked_package"
         private const val KEY_LAST_BLOCKED_AT = "last_blocked_at"
         private const val WATCHDOG_INTERVAL_MS = 400L
+        private const val RATE_LIMIT_MS = 300L
+        private const val FOREGROUND_STALE_MS = 5000L
     }
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
@@ -66,8 +70,30 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         startActivity(intent)
     }
 
-    private fun currentForegroundPackage(): String =
-        rootInActiveWindow?.packageName?.toString().orEmpty()
+    private fun currentForegroundPackage(): String {
+        try {
+            val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
+            if (usageStatsManager != null) {
+                val now = System.currentTimeMillis()
+                val stats = usageStatsManager.queryUsageStats(
+                    UsageStatsManager.INTERVAL_BEST,
+                    now - 10_000,
+                    now,
+                )
+                if (stats != null && stats.isNotEmpty()) {
+                    val sorted = stats.sortedByDescending { it.lastTimeUsed }
+                    val mostRecent = sorted.first()
+                    if (mostRecent.lastTimeUsed > 0 && now - mostRecent.lastTimeUsed < FOREGROUND_STALE_MS) {
+                        return mostRecent.packageName
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "UsageStatsManager failed (usage access likely not granted): ${e.message}")
+        }
+
+        return rootInActiveWindow?.packageName?.toString().orEmpty()
+    }
 
     private fun startWatchdog() {
         watchdogHandler.removeCallbacks(watchdogRunnable)
@@ -94,11 +120,11 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         } else {
             0L
         }
-        if (lastBlockedPackage == targetPackage && now - lastBlockedAt < 1500) {
+        if (lastBlockedPackage == targetPackage && now - lastBlockedAt < RATE_LIMIT_MS) {
             return
         }
 
-        Log.d(TAG, "Blocking foreground package: $targetPackage")
+        Log.i(TAG, "🚫 Blocking foreground package: $targetPackage")
         storedPrefs.edit()
             .putString(KEY_LAST_BLOCKED_PACKAGE, targetPackage)
             .putLong(KEY_LAST_BLOCKED_AT, now)

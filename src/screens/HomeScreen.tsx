@@ -19,6 +19,7 @@ import { useSettingsStore } from '../data/settingsStore';
 import { useScheduleStore } from '../data/scheduleStore';
 import { AppBlocker } from '../native/AppBlocker';
 import { PermissionCard } from '../components/PermissionCard';
+import { UsageAccessCard } from '../components/UsageAccessCard';
 import { TimerPill } from '../components/TimerPill';
 import { StatCard } from '../components/StatCard';
 import { formatDurationHuman, formatTime, formatRelativeUntil } from '../utils/time';
@@ -34,17 +35,22 @@ export function HomeScreen() {
   const settings = useSettingsStore();
   const schedules = useScheduleStore();
   const [accessibilityEnabled, setAccessibilityEnabled] = useState<boolean | null>(null);
+  const [usageAccessEnabled, setUsageAccessEnabled] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const checkAccessibility = useCallback(async () => {
-    const enabled = await AppBlocker.isAccessibilityEnabled();
-    setAccessibilityEnabled(enabled);
+  const checkPermissions = useCallback(async () => {
+    const [acc, usage] = await Promise.all([
+      AppBlocker.isAccessibilityEnabled(),
+      AppBlocker.isUsageAccessEnabled(),
+    ]);
+    setAccessibilityEnabled(acc);
+    setUsageAccessEnabled(usage);
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      checkAccessibility();
-    }, [checkAccessibility]),
+      checkPermissions();
+    }, [checkPermissions]),
   );
 
   useEffect(() => {
@@ -55,7 +61,7 @@ export function HomeScreen() {
       history.hydrate(),
       settings.hydrate(),
       schedules.hydrate(),
-    ]).then(() => checkAccessibility());
+    ]).then(() => checkPermissions());
     // Re-render every minute so "next schedule in 5 min" stays fresh.
     const id = setInterval(() => {
       setRefreshing((r) => r); // trigger a re-render without showing the spinner
@@ -66,9 +72,9 @@ export function HomeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await checkAccessibility();
+    await checkPermissions();
     setRefreshing(false);
-  }, [checkAccessibility]);
+  }, [checkPermissions]);
 
   const activeSession = timer.activeSession;
   const hasActiveSession = !!activeSession;
@@ -104,6 +110,12 @@ export function HomeScreen() {
 
         {accessibilityEnabled === false && (
           <PermissionCard onGrant={() => AppBlocker.openAccessibilitySettings()} />
+        )}
+
+        {/* Only show Usage Access card if Accessibility is already granted
+            but Usage Access is not. Avoids stacking two permission cards. */}
+        {accessibilityEnabled === true && usageAccessEnabled === false && (
+          <UsageAccessCard onGrant={() => AppBlocker.openUsageAccessSettings()} />
         )}
 
         {hasActiveSession && activeSession ? (

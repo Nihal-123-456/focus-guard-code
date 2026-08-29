@@ -33,6 +33,26 @@ export const AppBlocker = {
   },
 
   /**
+   * Whether the user has granted Usage Access (PACKAGE_USAGE_STATS) permission.
+   * Required for reliable foreground-app detection via UsageStatsManager.
+   */
+  async isUsageAccessEnabled(): Promise<boolean> {
+    if (!isAvailable) return false;
+    try {
+      return await NativeModule.isUsageAccessEnabled();
+    } catch (e) {
+      console.warn('[AppBlocker] isUsageAccessEnabled failed:', e);
+      return false;
+    }
+  },
+
+  /** Open the system "Usage access" settings so the user can grant permission. */
+  async openUsageAccessSettings(): Promise<void> {
+    if (!isAvailable) return;
+    await NativeModule.openUsageAccessSettings();
+  },
+
+  /**
    * Activate blocking for the given package list.
    * The accessibility service will intercept and prevent launches of these apps.
    */

@@ -1,8 +1,12 @@
 package com.focusguard
 
+import android.app.AppOpsManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Build
+import android.os.Process
 import android.provider.Settings
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -33,6 +37,7 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             .remove(KEY_LAST_BLOCKED_PACKAGE)
             .remove(KEY_LAST_BLOCKED_AT)
             .apply()
+        android.util.Log.i("FocusGuardBlocker", "✅ Blocking activated for ${packageNames.size} packages: $packageNames")
     }
 
     private fun clearBlockingState() {
@@ -42,12 +47,14 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             .remove(KEY_LAST_BLOCKED_PACKAGE)
             .remove(KEY_LAST_BLOCKED_AT)
             .apply()
+        android.util.Log.i("FocusGuardBlocker", "✅ Blocking deactivated")
     }
 
     private fun buildStatus(): WritableMap {
         val storedPrefs = prefs()
         val status = Arguments.createMap()
         status.putBoolean("isAccessibilityEnabled", isAccessibilityServiceEnabled())
+        status.putBoolean("isUsageAccessEnabled", isUsageAccessEnabled())
         status.putBoolean("isBlockingActive", storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false))
         status.putString("blockedPackage", storedPrefs.getString(KEY_LAST_BLOCKED_PACKAGE, null))
         if (storedPrefs.contains(KEY_LAST_BLOCKED_AT)) {
@@ -70,6 +77,25 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
         return enabledServices.split(':').any { it.equals(serviceName, ignoreCase = true) }
     }
 
+    private fun isUsageAccessEnabled(): Boolean {
+        val appOps = reactApplicationContext.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            appOps.unsafeCheckOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                reactApplicationContext.packageName,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            appOps.checkOpNoThrow(
+                AppOpsManager.OPSTR_GET_USAGE_STATS,
+                Process.myUid(),
+                reactApplicationContext.packageName,
+            )
+        }
+        return mode == AppOpsManager.MODE_ALLOWED
+    }
+
     @ReactMethod
     fun openAccessibilitySettings(promise: Promise) {
         try {
@@ -88,6 +114,27 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             promise.resolve(isAccessibilityServiceEnabled())
         } catch (error: Exception) {
             promise.reject("ACCESSIBILITY_STATUS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun isUsageAccessEnabled(promise: Promise) {
+        try {
+            promise.resolve(isUsageAccessEnabled())
+        } catch (error: Exception) {
+            promise.reject("USAGE_ACCESS_STATUS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun openUsageAccessSettings(promise: Promise) {
+        try {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(null)
+        } catch (error: Exception) {
+            promise.reject("USAGE_ACCESS_SETTINGS_ERROR", error)
         }
     }
 

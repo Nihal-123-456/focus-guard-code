@@ -18,13 +18,18 @@ import { isMockMode } from '../data/appListStore';
 export function SettingsScreen() {
   const settings = useSettingsStore();
   const [accessibilityEnabled, setAccessibilityEnabled] = useState<boolean | null>(null);
+  const [usageAccessEnabled, setUsageAccessEnabled] = useState<boolean | null>(null);
   const [blockerStatus, setBlockerStatus] = useState<{
     isBlockingActive: boolean;
   } | null>(null);
 
   const refreshStatus = useCallback(async () => {
-    const enabled = await AppBlocker.isAccessibilityEnabled();
-    setAccessibilityEnabled(enabled);
+    const [acc, usage] = await Promise.all([
+      AppBlocker.isAccessibilityEnabled(),
+      AppBlocker.isUsageAccessEnabled(),
+    ]);
+    setAccessibilityEnabled(acc);
+    setUsageAccessEnabled(usage);
     try {
       const status = await AppBlocker.getStatus();
       setBlockerStatus({ isBlockingActive: status.isBlockingActive });
@@ -84,6 +89,39 @@ export function SettingsScreen() {
             </View>
           </View>
 
+          <View style={styles.statusRow}>
+            <Text style={styles.statusLabel}>Usage access</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                usageAccessEnabled
+                  ? styles.statusBadgeOn
+                  : styles.statusBadgeOff,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusBadgeText,
+                  usageAccessEnabled
+                    ? styles.statusBadgeTextOn
+                    : styles.statusBadgeTextOff,
+                ]}
+              >
+                {usageAccessEnabled === null
+                  ? 'Checking…'
+                  : usageAccessEnabled
+                    ? 'Enabled'
+                    : 'Disabled'}
+              </Text>
+            </View>
+          </View>
+
+          {usageAccessEnabled === false && (
+            <Text style={styles.warningText}>
+              ⚠️ Without Usage Access, blocking may not work reliably. Tap below to grant.
+            </Text>
+          )}
+
           {blockerStatus && (
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>Blocking active</Text>
@@ -98,6 +136,13 @@ export function SettingsScreen() {
             onPress={() => AppBlocker.openAccessibilitySettings()}
           >
             <Text style={styles.cardButtonText}>Open accessibility settings</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.cardButton, styles.cardButtonSecondary]}
+            onPress={() => AppBlocker.openUsageAccessSettings()}
+          >
+            <Text style={styles.cardButtonText}>Open usage access settings</Text>
           </Pressable>
 
           <Pressable style={styles.cardLink} onPress={refreshStatus}>
@@ -350,12 +395,27 @@ const styles = StyleSheet.create({
   statusBadgeTextOff: {
     color: colors.danger,
   },
+  warningText: {
+    ...typography.caption,
+    color: colors.warning,
+    backgroundColor: colors.warningSoft,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    lineHeight: 18,
+  },
   cardButton: {
     backgroundColor: colors.accent,
     borderRadius: radius.md,
     paddingVertical: spacing.md,
     alignItems: 'center',
     marginTop: spacing.md,
+  },
+  cardButtonSecondary: {
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.accent,
   },
   cardButtonText: {
     ...typography.button,
