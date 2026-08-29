@@ -33,19 +33,21 @@ class BlockingOverlayActivity : AppCompatActivity() {
     private fun isBlockingActive(): Boolean =
         prefs().getBoolean(KEY_BLOCKING_ACTIVE, false)
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_blocking_overlay)
-
-        val packageName = intent.getStringExtra(EXTRA_BLOCKED_PACKAGE).orEmpty()
-        val blockedLabel = intent.getStringExtra(EXTRA_BLOCKED_LABEL).orEmpty()
-
+    private fun renderPackageLabel(intent: Intent?) {
+        val packageName = intent?.getStringExtra(EXTRA_BLOCKED_PACKAGE).orEmpty()
+        val blockedLabel = intent?.getStringExtra(EXTRA_BLOCKED_LABEL).orEmpty()
         findViewById<TextView>(R.id.blockingPackage).text = when {
             blockedLabel.isNotBlank() && packageName.isNotBlank() -> "$blockedLabel ($packageName)"
             blockedLabel.isNotBlank() -> blockedLabel
             packageName.isNotBlank() -> packageName
             else -> getString(R.string.app_name)
         }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_blocking_overlay)
+        renderPackageLabel(intent)
     }
 
     override fun onResume() {
@@ -70,13 +72,6 @@ class BlockingOverlayActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         setIntent(intent)
-        val packageName = intent?.getStringExtra(EXTRA_BLOCKED_PACKAGE).orEmpty()
-        val blockedLabel = intent?.getStringExtra(EXTRA_BLOCKED_LABEL).orEmpty()
-        findViewById<TextView>(R.id.blockingPackage).text = when {
-            blockedLabel.isNotBlank() && packageName.isNotBlank() -> "$blockedLabel ($packageName)"
-            blockedLabel.isNotBlank() -> blockedLabel
-            packageName.isNotBlank() -> packageName
-            else -> getString(R.string.app_name)
-        }
+        renderPackageLabel(intent)
     }
 }

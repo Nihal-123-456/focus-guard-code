@@ -11,9 +11,6 @@
     <item name="android:textColorHint">#c8c8c8</item>
     <item name="android:textColor">@android:color/black</item>
   </style>
-  <style name="Theme.App.SplashScreen" parent="AppTheme">
-    <item name="android:windowBackground">@drawable/ic_launcher_background</item>
-  </style>
   <style name="Theme.FocusGuard.BlockingOverlay" parent="Theme.AppCompat.Light.NoActionBar">
     <item name="android:windowNoTitle">true</item>
     <item name="android:windowFullscreen">true</item>
@@ -21,5 +18,8 @@
     <item name="android:navigationBarColor">@color/blocking_overlay_background</item>
     <item name="android:windowBackground">@color/blocking_overlay_background</item>
     <item name="android:textColor">@color/blocking_overlay_text</item>
+  </style>
+  <style name="Theme.App.SplashScreen" parent="AppTheme">
+    <item name="android:windowBackground">@drawable/ic_launcher_background</item>
   </style>
 </resources>

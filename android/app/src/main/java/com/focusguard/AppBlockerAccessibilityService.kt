@@ -1,8 +1,8 @@
 package com.focusguard
 
 import android.accessibilityservice.AccessibilityService
-import android.content.SharedPreferences
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -16,14 +16,33 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         private const val KEY_LAST_BLOCKED_PACKAGE = "last_blocked_package"
         private const val KEY_LAST_BLOCKED_AT = "last_blocked_at"
+        private const val WATCHDOG_INTERVAL_MS = 400L
+    }
+
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            if (shouldWatchdogRun()) {
+                maybeEnforceForegroundPackage(currentForegroundPackage())
+            }
+            watchdogHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
+        }
     }
 
     private fun prefs(): SharedPreferences =
         getSharedPreferences(APP_BLOCKER_PREFS, 0)
 
+    private fun shouldWatchdogRun(): Boolean =
+        prefs().getBoolean(KEY_BLOCKING_ACTIVE, false)
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         Log.i(TAG, "Accessibility service connected")
+        startWatchdog()
+    }
+
+    override fun onInterrupt() {
+        stopWatchdog()
     }
 
     private fun launchBlockingOverlay(targetPackage: String) {
@@ -47,9 +66,19 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         startActivity(intent)
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val targetPackage = event?.packageName?.toString().orEmpty()
-            .ifBlank { rootInActiveWindow?.packageName?.toString().orEmpty() }
+    private fun currentForegroundPackage(): String =
+        rootInActiveWindow?.packageName?.toString().orEmpty()
+
+    private fun startWatchdog() {
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
+    }
+
+    private fun stopWatchdog() {
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+    }
+
+    private fun maybeEnforceForegroundPackage(targetPackage: String) {
         if (targetPackage.isBlank() || targetPackage == applicationContext.packageName) return
 
         val storedPrefs = prefs()
@@ -80,5 +109,14 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         }
     }
 
-    override fun onInterrupt() = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val targetPackage = event?.packageName?.toString().orEmpty()
+            .ifBlank { currentForegroundPackage() }
+        maybeEnforceForegroundPackage(targetPackage)
+    }
+
+    override fun onDestroy() {
+        stopWatchdog()
+        super.onDestroy()
+    }
 }
