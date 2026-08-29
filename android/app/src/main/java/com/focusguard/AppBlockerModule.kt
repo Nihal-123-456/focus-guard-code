@@ -48,6 +48,7 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             .remove(KEY_LAST_BLOCKED_PACKAGE)
             .remove(KEY_LAST_BLOCKED_AT)
             .apply()
+        BlockingOverlayManager.hide()
         android.util.Log.i("FocusGuardBlocker", "✅ Blocking deactivated")
     }
 

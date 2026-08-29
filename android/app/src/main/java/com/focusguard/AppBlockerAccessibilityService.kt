@@ -3,7 +3,6 @@ package com.focusguard
 import android.accessibilityservice.AccessibilityService
 import android.app.usage.UsageStatsManager
 import android.content.Context
-import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
@@ -49,7 +48,12 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         stopWatchdog()
     }
 
-    private fun launchBlockingOverlay(targetPackage: String) {
+    /**
+     * Show the blocking overlay via WindowManager (BlockingOverlayManager).
+     * This draws directly on top of everything, regardless of which app
+     * is in the foreground — no task management, no background-launch issues.
+     */
+    private fun showBlockingOverlay(targetPackage: String) {
         val pm = packageManager
         val blockedLabel = try {
             val appInfo = pm.getApplicationInfo(targetPackage, 0)
@@ -58,22 +62,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             targetPackage
         }
 
-        Log.i(TAG, "→ Launching overlay for $targetPackage (label=$blockedLabel)")
-
-        val intent = Intent(this, BlockingOverlayActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_PACKAGE, targetPackage)
-            putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_LABEL, blockedLabel)
-        }
-
-        try {
-            startActivity(intent)
-            Log.i(TAG, "✅ startActivity succeeded for $targetPackage")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ startActivity failed for $targetPackage: ${e.message}", e)
-        }
+        BlockingOverlayManager.show(applicationContext, targetPackage, blockedLabel)
     }
 
     private fun currentForegroundPackage(): String {
@@ -111,7 +100,13 @@ class AppBlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun maybeEnforceForegroundPackage(targetPackage: String) {
-        if (targetPackage.isBlank() || targetPackage == applicationContext.packageName) return
+        if (targetPackage.isBlank() || targetPackage == applicationContext.packageName) {
+            // If FocusGuard is in the foreground, hide any existing overlay.
+            if (targetPackage == applicationContext.packageName && BlockingOverlayManager.isShowing()) {
+                BlockingOverlayManager.hide()
+            }
+            return
+        }
 
         val storedPrefs = prefs()
         if (!storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) return
@@ -137,7 +132,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             .apply()
 
         Handler(Looper.getMainLooper()).post {
-            launchBlockingOverlay(targetPackage)
+            showBlockingOverlay(targetPackage)
         }
     }
 
@@ -149,6 +144,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         stopWatchdog()
+        BlockingOverlayManager.hide()
         super.onDestroy()
     }
 }
