@@ -19,7 +19,10 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_LAST_BLOCKED_AT = "last_blocked_at"
         private const val WATCHDOG_INTERVAL_MS = 400L
         private const val RATE_LIMIT_MS = 300L
-        private const val FOREGROUND_STALE_MS = 5000L
+        // Reduced from 5000ms to 800ms — only consider an app "foreground"
+        // if it was actually used in the last 800ms. Prevents false positives
+        // where UsageStatsManager reports a stale "last used" time.
+        private const val FOREGROUND_STALE_MS = 800L
     }
 
     private val watchdogHandler = Handler(Looper.getMainLooper())
@@ -99,14 +102,32 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         watchdogHandler.removeCallbacks(watchdogRunnable)
     }
 
+    /**
+     * Check whether FocusGuard is ACTUALLY visible right now.
+     *
+     * Used to decide whether to keep the overlay showing. We do NOT hide
+     * the overlay just because FocusGuard's own accessibility event fired —
+     * that event fires constantly (every UI update) and would cause the
+     * overlay to flicker off.
+     */
+    private fun isFocusGuardGenuinelyInForeground(): Boolean {
+        val foreground = currentForegroundPackage()
+        return foreground == applicationContext.packageName
+    }
+
     private fun maybeEnforceForegroundPackage(targetPackage: String) {
-        if (targetPackage.isBlank() || targetPackage == applicationContext.packageName) {
-            // If FocusGuard is in the foreground, hide any existing overlay.
-            if (targetPackage == applicationContext.packageName && BlockingOverlayManager.isShowing()) {
+        // Don't block our own app.
+        if (targetPackage == applicationContext.packageName) {
+            // Only hide the overlay if FocusGuard is GENUINELY in the foreground
+            // (verified via UsageStatsManager with the tight 800ms threshold).
+            if (BlockingOverlayManager.isShowing() && isFocusGuardGenuinelyInForeground()) {
+                Log.i(TAG, "FocusGuard is foreground — hiding overlay")
                 BlockingOverlayManager.hide()
             }
             return
         }
+
+        if (targetPackage.isBlank()) return
 
         val storedPrefs = prefs()
         if (!storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) return
