@@ -313,21 +313,53 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         private const val KEY_BLOCKED_PACKAGES = "blocked_packages"
         private const val KEY_LAST_BLOCKED_PACKAGE = "last_blocked_package"
         private const val KEY_LAST_BLOCKED_AT = "last_blocked_at"
-        private const val WATCHDOG_INTERVAL_MS = 400L
-        private const val RATE_LIMIT_MS = 300L
-        // Reduced from 5000ms to 800ms — only consider an app "foreground"
-        // if it was actually used in the last 800ms. Prevents false positives
-        // where UsageStatsManager reports a stale "last used" time.
-        private const val FOREGROUND_STALE_MS = 800L
+        private const val WATCHDOG_INTERVAL_MS = 500L
+        private const val RATE_LIMIT_MS = 1000L
+        // How recent must UsageStatsManager.lastTimeUsed be to consider the app "foreground"?
+        // 2 seconds is tight enough to avoid stale data, loose enough to handle lag.
+        private const val USAGE_STATS_FRESH_MS = 2000L
+        // How many consecutive polls must report the same blocked app before we show the overlay?
+        // This filters out stale events and momentary glitches.
+        // At 500ms poll interval, 2 confirmations = 1 second of consistent detection.
+        private const val CONFIRMATION_COUNT = 2
+        // After showing the overlay, ignore "FocusGuard is foreground" events for this long.
+        // Showing the overlay itself triggers an accessibility event for com.focusguard.
+        private const val OVERLAY_SHOW_COOLDOWN_MS = 5000L
+        // How recently must the overlay have been shown to consider it "active"?
+        // If the overlay was shown within this window and we detect FocusGuard as foreground,
+        // it's almost certainly the overlay itself triggering the event, not the user.
+        private const val OVERLAY_RECENT_MS = 5000L
     }
 
-    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())
+
+    /**
+     * PRIMARY foreground detection: poll UsageStatsManager every 500ms.
+     * On MIUI, accessibility events are unreliable (suppressed for protected
+     * apps, delayed by tens of seconds for others). UsageStatsManager is
+     * updated by the system more reliably, though with some lag.
+     */
+    @Volatile
+    private var currentDetectedForeground: String = ""
+
+    /**
+     * How many consecutive polls have reported the SAME blocked app?
+     * We only show the overlay after CONFIRMATION_COUNT consecutive detections.
+     */
+    @Volatile
+    private var pendingConfirmationPackage: String = ""
+    @Volatile
+    private var pendingConfirmationCount: Int = 0
+
+    @Volatile
+    private var lastOverlayShownAt: Long = 0L
+
     private val watchdogRunnable = object : Runnable {
         override fun run() {
             if (shouldWatchdogRun()) {
-                maybeEnforceForegroundPackage(currentForegroundPackage())
+                pollForegroundAndMaybeBlock()
             }
-            watchdogHandler.postDelayed(this, WATCHDOG_INTERVAL_MS)
+            handler.postDelayed(this, WATCHDOG_INTERVAL_MS)
         }
     }
 
@@ -339,7 +371,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.i(TAG, "Accessibility service connected")
+        Log.i(TAG, "Accessibility service connected (v9 polling mode)")
         startWatchdog()
     }
 
@@ -347,11 +379,6 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         stopWatchdog()
     }
 
-    /**
-     * Show the blocking overlay via WindowManager (BlockingOverlayManager).
-     * This draws directly on top of everything, regardless of which app
-     * is in the foreground — no task management, no background-launch issues.
-     */
     private fun showBlockingOverlay(targetPackage: String) {
         val pm = packageManager
         val blockedLabel = try {
@@ -361,10 +388,15 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             targetPackage
         }
 
+        lastOverlayShownAt = System.currentTimeMillis()
         BlockingOverlayManager.show(applicationContext, targetPackage, blockedLabel)
     }
 
-    private fun currentForegroundPackage(): String {
+    /**
+     * Poll UsageStatsManager to detect the foreground app.
+     * This is the PRIMARY detection method on MIUI.
+     */
+    private fun detectForegroundApp(): String {
         try {
             val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as? UsageStatsManager
             if (usageStatsManager != null) {
@@ -377,60 +409,78 @@ class AppBlockerAccessibilityService : AccessibilityService() {
                 if (stats != null && stats.isNotEmpty()) {
                     val sorted = stats.sortedByDescending { it.lastTimeUsed }
                     val mostRecent = sorted.first()
-                    if (mostRecent.lastTimeUsed > 0 && now - mostRecent.lastTimeUsed < FOREGROUND_STALE_MS) {
+                    if (mostRecent.lastTimeUsed > 0 &&
+                        now - mostRecent.lastTimeUsed < USAGE_STATS_FRESH_MS
+                    ) {
                         return mostRecent.packageName
                     }
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "UsageStatsManager failed (usage access likely not granted): \${e.message}")
+            Log.w(TAG, "UsageStatsManager failed: \${e.message}")
+        }
+        return ""
+    }
+
+    private fun pollForegroundAndMaybeBlock() {
+        val foreground = detectForegroundApp()
+        currentDetectedForeground = foreground
+
+        if (foreground.isBlank()) {
+            // No reliable foreground detection — reset confirmation
+            pendingConfirmationPackage = ""
+            pendingConfirmationCount = 0
+            return
         }
 
-        return rootInActiveWindow?.packageName?.toString().orEmpty()
-    }
+        // If FocusGuard itself is "foreground", check if it's the overlay triggering
+        // (within cooldown) vs. the user actually opening FocusGuard.
+        if (foreground == applicationContext.packageName) {
+            val now = System.currentTimeMillis()
+            val overlayRecent = now - lastOverlayShownAt < OVERLAY_RECENT_MS
+            if (overlayRecent) {
+                // The overlay is triggering this. Don't hide it.
+                return
+            }
+            // User genuinely opened FocusGuard. Hide the overlay.
+            if (BlockingOverlayManager.isShowing()) {
+                Log.i(TAG, "FocusGuard genuinely foreground — hiding overlay")
+                BlockingOverlayManager.hide()
+            }
+            pendingConfirmationPackage = ""
+            pendingConfirmationCount = 0
+            return
+        }
 
-    private fun startWatchdog() {
-        watchdogHandler.removeCallbacks(watchdogRunnable)
-        watchdogHandler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
-    }
+        val storedPrefs = prefs()
+        val blockedPackages = storedPrefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()).orEmpty()
 
-    private fun stopWatchdog() {
-        watchdogHandler.removeCallbacks(watchdogRunnable)
-    }
-
-    /**
-     * Check whether FocusGuard is ACTUALLY visible right now.
-     *
-     * Used to decide whether to keep the overlay showing. We do NOT hide
-     * the overlay just because FocusGuard's own accessibility event fired —
-     * that event fires constantly (every UI update) and would cause the
-     * overlay to flicker off.
-     */
-    private fun isFocusGuardGenuinelyInForeground(): Boolean {
-        val foreground = currentForegroundPackage()
-        return foreground == applicationContext.packageName
-    }
-
-    private fun maybeEnforceForegroundPackage(targetPackage: String) {
-        // Don't block our own app.
-        if (targetPackage == applicationContext.packageName) {
-            // Only hide the overlay if FocusGuard is GENUINELY in the foreground
-            // (verified via UsageStatsManager with the tight 800ms threshold).
-            if (BlockingOverlayManager.isShowing() && isFocusGuardGenuinelyInForeground()) {
-                Log.i(TAG, "FocusGuard is foreground — hiding overlay")
+        if (!blockedPackages.contains(foreground)) {
+            // Foreground app isn't blocked — reset confirmation
+            pendingConfirmationPackage = ""
+            pendingConfirmationCount = 0
+            // Also hide overlay if showing (user switched to a non-blocked app)
+            if (BlockingOverlayManager.isShowing()) {
+                Log.i(TAG, "Non-blocked app foreground ($foreground) — hiding overlay")
                 BlockingOverlayManager.hide()
             }
             return
         }
 
-        if (targetPackage.isBlank()) return
+        // Foreground app IS blocked. Apply confirmation logic.
+        if (pendingConfirmationPackage == foreground) {
+            pendingConfirmationCount++
+        } else {
+            pendingConfirmationPackage = foreground
+            pendingConfirmationCount = 1
+        }
 
-        val storedPrefs = prefs()
-        if (!storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false)) return
+        if (pendingConfirmationCount < CONFIRMATION_COUNT) {
+            // Need more confirmations — wait for next poll
+            return
+        }
 
-        val blockedPackages = storedPrefs.getStringSet(KEY_BLOCKED_PACKAGES, emptySet()).orEmpty()
-        if (!blockedPackages.contains(targetPackage)) return
-
+        // Confirmed! Check rate limit before showing overlay.
         val now = System.currentTimeMillis()
         val lastBlockedPackage = storedPrefs.getString(KEY_LAST_BLOCKED_PACKAGE, null)
         val lastBlockedAt = if (storedPrefs.contains(KEY_LAST_BLOCKED_AT)) {
@@ -438,25 +488,53 @@ class AppBlockerAccessibilityService : AccessibilityService() {
         } else {
             0L
         }
-        if (lastBlockedPackage == targetPackage && now - lastBlockedAt < RATE_LIMIT_MS) {
+        // If overlay is already showing for this app, don't re-show
+        if (BlockingOverlayManager.isShowing() &&
+            lastBlockedPackage == foreground &&
+            now - lastBlockedAt < RATE_LIMIT_MS
+        ) {
             return
         }
 
-        Log.i(TAG, "🚫 Detected blocked app in foreground: \$targetPackage")
+        Log.i(TAG, "🚫 Confirmed blocked app in foreground: $foreground (after $pendingConfirmationCount polls)")
         storedPrefs.edit()
-            .putString(KEY_LAST_BLOCKED_PACKAGE, targetPackage)
+            .putString(KEY_LAST_BLOCKED_PACKAGE, foreground)
             .putLong(KEY_LAST_BLOCKED_AT, now)
             .apply()
 
-        Handler(Looper.getMainLooper()).post {
-            showBlockingOverlay(targetPackage)
+        handler.post {
+            showBlockingOverlay(foreground)
         }
     }
 
+    private fun startWatchdog() {
+        handler.removeCallbacks(watchdogRunnable)
+        handler.postDelayed(watchdogRunnable, WATCHDOG_INTERVAL_MS)
+    }
+
+    private fun stopWatchdog() {
+        handler.removeCallbacks(watchdogRunnable)
+    }
+
+    /**
+     * Accessibility events are used as a SECONDARY signal only.
+     * On MIUI, they're unreliable. We mainly use them to detect when
+     * the user switches to FocusGuard (to hide the overlay).
+     */
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val targetPackage = event?.packageName?.toString().orEmpty()
-            .ifBlank { currentForegroundPackage() }
-        maybeEnforceForegroundPackage(targetPackage)
+        if (targetPackage.isBlank()) return
+
+        // If event says FocusGuard is foreground, AND we're not in the
+        // overlay-cooldown window, hide the overlay.
+        if (targetPackage == applicationContext.packageName) {
+            val now = System.currentTimeMillis()
+            val overlayRecent = now - lastOverlayShownAt < OVERLAY_RECENT_MS
+            if (!overlayRecent && BlockingOverlayManager.isShowing()) {
+                Log.i(TAG, "Event: FocusGuard foreground — hiding overlay")
+                BlockingOverlayManager.hide()
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -560,6 +638,12 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 
+/**
+ * Manages a full-screen system overlay window that blocks the user from
+ * interacting with blacklisted apps.
+ *
+ * Uses WindowManager.addView() with TYPE_APPLICATION_OVERLAY.
+ */
 object BlockingOverlayManager {
     private const val TAG = "FocusGuardBlocker"
     private const val APP_BLOCKER_PREFS = "focusguard_app_blocker"
@@ -571,17 +655,26 @@ object BlockingOverlayManager {
     private val handler = Handler(Looper.getMainLooper())
     private var monitorRunnable: Runnable? = null
     private var appContext: Context? = null
+    private var currentBlockedPackage: String = ""
 
     fun show(context: Context, targetPackage: String, blockedLabel: String) {
-        Log.i(TAG, "→ Showing overlay for \$targetPackage (label=\$blockedLabel)")
         appContext = context.applicationContext
         handler.post {
             try {
-                if (overlayView != null) {
-                    updateLabel(targetPackage, blockedLabel)
-                    Log.i(TAG, "✅ Overlay updated for \$targetPackage")
+                // If overlay is already showing for the SAME package, do nothing
+                if (overlayView != null && currentBlockedPackage == targetPackage) {
                     return@post
                 }
+
+                // If overlay is showing for a DIFFERENT package, update the label
+                if (overlayView != null) {
+                    currentBlockedPackage = targetPackage
+                    updateLabel(targetPackage, blockedLabel)
+                    Log.i(TAG, "✅ Overlay updated for $targetPackage")
+                    return@post
+                }
+
+                Log.i(TAG, "→ Showing overlay for $targetPackage (label=$blockedLabel)")
 
                 val wm = appContext!!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 windowManager = wm
@@ -614,8 +707,9 @@ object BlockingOverlayManager {
 
                 wm.addView(view, params)
                 overlayView = view
+                currentBlockedPackage = targetPackage
 
-                Log.i(TAG, "✅ Overlay shown for \$targetPackage")
+                Log.i(TAG, "✅ Overlay shown for $targetPackage")
                 startMonitor()
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to show overlay: \${e.message}", e)
@@ -632,7 +726,7 @@ object BlockingOverlayManager {
         val labelView = view.findViewById<TextView>(R.id.blockingPackage)
         labelView?.text = when {
             blockedLabel.isNotBlank() && targetPackage.isNotBlank() ->
-                "\$blockedLabel (\$targetPackage)"
+                "$blockedLabel ($targetPackage)"
             blockedLabel.isNotBlank() -> blockedLabel
             targetPackage.isNotBlank() -> targetPackage
             else -> appContext?.getString(R.string.app_name) ?: "FocusGuard"
@@ -672,6 +766,7 @@ object BlockingOverlayManager {
                 }
                 overlayView = null
                 windowManager = null
+                currentBlockedPackage = ""
                 stopMonitor()
                 Log.i(TAG, "Overlay hidden")
             } catch (e: Exception) {

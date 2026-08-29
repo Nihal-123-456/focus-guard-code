@@ -12,6 +12,12 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 
+/**
+ * Manages a full-screen system overlay window that blocks the user from
+ * interacting with blacklisted apps.
+ *
+ * Uses WindowManager.addView() with TYPE_APPLICATION_OVERLAY.
+ */
 object BlockingOverlayManager {
     private const val TAG = "FocusGuardBlocker"
     private const val APP_BLOCKER_PREFS = "focusguard_app_blocker"
@@ -23,17 +29,26 @@ object BlockingOverlayManager {
     private val handler = Handler(Looper.getMainLooper())
     private var monitorRunnable: Runnable? = null
     private var appContext: Context? = null
+    private var currentBlockedPackage: String = ""
 
     fun show(context: Context, targetPackage: String, blockedLabel: String) {
-        Log.i(TAG, "→ Showing overlay for $targetPackage (label=$blockedLabel)")
         appContext = context.applicationContext
         handler.post {
             try {
+                // If overlay is already showing for the SAME package, do nothing
+                if (overlayView != null && currentBlockedPackage == targetPackage) {
+                    return@post
+                }
+
+                // If overlay is showing for a DIFFERENT package, update the label
                 if (overlayView != null) {
+                    currentBlockedPackage = targetPackage
                     updateLabel(targetPackage, blockedLabel)
                     Log.i(TAG, "✅ Overlay updated for $targetPackage")
                     return@post
                 }
+
+                Log.i(TAG, "→ Showing overlay for $targetPackage (label=$blockedLabel)")
 
                 val wm = appContext!!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 windowManager = wm
@@ -66,6 +81,7 @@ object BlockingOverlayManager {
 
                 wm.addView(view, params)
                 overlayView = view
+                currentBlockedPackage = targetPackage
 
                 Log.i(TAG, "✅ Overlay shown for $targetPackage")
                 startMonitor()
@@ -124,6 +140,7 @@ object BlockingOverlayManager {
                 }
                 overlayView = null
                 windowManager = null
+                currentBlockedPackage = ""
                 stopMonitor()
                 Log.i(TAG, "Overlay hidden")
             } catch (e: Exception) {
