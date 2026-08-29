@@ -9,6 +9,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
@@ -59,6 +60,7 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
         val status = Arguments.createMap()
         status.putBoolean("isAccessibilityEnabled", isAccessibilityServiceEnabled())
         status.putBoolean("isUsageAccessEnabled", isUsageAccessEnabled())
+        status.putBoolean("canDrawOverOtherApps", canDrawOverOtherApps())
         status.putBoolean("isBlockingActive", storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false))
         status.putString("blockedPackage", storedPrefs.getString(KEY_LAST_BLOCKED_PACKAGE, null))
         if (storedPrefs.contains(KEY_LAST_BLOCKED_AT)) {
@@ -100,6 +102,14 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
+    private fun canDrawOverOtherApps(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(reactApplicationContext)
+        } else {
+            true
+        }
+    }
+
     @ReactMethod
     fun openAccessibilitySettings(promise: Promise) {
         try {
@@ -139,6 +149,37 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             promise.resolve(null)
         } catch (error: Exception) {
             promise.reject("USAGE_ACCESS_SETTINGS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun canDrawOverOtherApps(promise: Promise) {
+        try {
+            promise.resolve(canDrawOverOtherApps())
+        } catch (error: Exception) {
+            promise.reject("OVERLAY_PERMISSION_STATUS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun requestDrawOverOtherApps(promise: Promise) {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:\${reactApplicationContext.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(null)
+        } catch (error: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:\${reactApplicationContext.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactApplicationContext.startActivity(fallback)
+                promise.resolve(null)
+            } catch (e2: Exception) {
+                promise.reject("OVERLAY_PERMISSION_SETTINGS_ERROR", e2)
+            }
         }
     }
 
@@ -312,16 +353,22 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             targetPackage
         }
 
+        Log.i(TAG, "→ Launching overlay for \$targetPackage (label=\$blockedLabel)")
+
         val intent = Intent(this, BlockingOverlayActivity::class.java).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
-            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_PACKAGE, targetPackage)
             putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_LABEL, blockedLabel)
         }
-        startActivity(intent)
+
+        try {
+            startActivity(intent)
+            Log.i(TAG, "✅ startActivity succeeded for \$targetPackage")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ startActivity failed for \$targetPackage: \${e.message}", e)
+        }
     }
 
     private fun currentForegroundPackage(): String {
@@ -378,7 +425,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             return
         }
 
-        Log.i(TAG, "🚫 Blocking foreground package: \$targetPackage")
+        Log.i(TAG, "🚫 Detected blocked app in foreground: \$targetPackage")
         storedPrefs.edit()
             .putString(KEY_LAST_BLOCKED_PACKAGE, targetPackage)
             .putLong(KEY_LAST_BLOCKED_AT, now)
@@ -698,9 +745,16 @@ function withServiceManifest(config) {
       });
     }
 
-    // IMPORTANT: noHistory and finishOnTaskLaunch are intentionally NOT set.
-    // They were causing the overlay to dismiss prematurely, letting users
-    // reopen the blocked app. The overlay must persist until the session ends.
+    // IMPORTANT: The overlay activity must NOT have:
+    //   - taskAffinity="" (causes it to launch in a separate background task
+    //     that cannot be brought to foreground on Android 10+)
+    //   - excludeFromRecents="true" (interferes with task switching)
+    //   - noHistory="true" (causes premature dismissal)
+    //   - finishOnTaskLaunch="true" (causes premature dismissal)
+    //
+    // The overlay lives in FocusGuard's main task. When launched with
+    // FLAG_ACTIVITY_NEW_TASK, it brings FocusGuard's task to the foreground,
+    // covering the blocked app.
     application.activity = application.activity || [];
     const overlayAlreadyDeclared = application.activity.some(
       (activity) => activity.$?.['android:name'] === '.BlockingOverlayActivity',
@@ -710,12 +764,10 @@ function withServiceManifest(config) {
         $: {
           'android:name': '.BlockingOverlayActivity',
           'android:exported': 'false',
-          'android:excludeFromRecents': 'true',
           'android:launchMode': 'singleTop',
           'android:showWhenLocked': 'true',
           'android:turnScreenOn': 'true',
           'android:theme': '@style/Theme.FocusGuard.BlockingOverlay',
-          'android:taskAffinity': '',
           'android:screenOrientation': 'portrait',
         },
       });
@@ -726,6 +778,8 @@ function withServiceManifest(config) {
         (activity) => activity.$?.['android:name'] === '.BlockingOverlayActivity',
       );
       if (overlayActivity && overlayActivity.$) {
+        delete overlayActivity.$['android:taskAffinity'];
+        delete overlayActivity.$['android:excludeFromRecents'];
         delete overlayActivity.$['android:noHistory'];
         delete overlayActivity.$['android:finishOnTaskLaunch'];
       }

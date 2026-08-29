@@ -53,6 +53,30 @@ export const AppBlocker = {
   },
 
   /**
+   * Whether the user has granted SYSTEM_ALERT_WINDOW ("draw over other apps").
+   * Required on Android 10+ for the accessibility service to bring the blocking
+   * overlay to the foreground over the blocked app.
+   */
+  async canDrawOverOtherApps(): Promise<boolean> {
+    if (!isAvailable) return false;
+    try {
+      return await NativeModule.canDrawOverOtherApps();
+    } catch (e) {
+      console.warn('[AppBlocker] canDrawOverOtherApps failed:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Open the system "Display over other apps" settings for FocusGuard
+   * so the user can grant the permission.
+   */
+  async requestDrawOverOtherApps(): Promise<void> {
+    if (!isAvailable) return;
+    await NativeModule.requestDrawOverOtherApps();
+  },
+
+  /**
    * Activate blocking for the given package list.
    * The accessibility service will intercept and prevent launches of these apps.
    */

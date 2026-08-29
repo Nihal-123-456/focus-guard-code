@@ -20,6 +20,7 @@ import { useScheduleStore } from '../data/scheduleStore';
 import { AppBlocker } from '../native/AppBlocker';
 import { PermissionCard } from '../components/PermissionCard';
 import { UsageAccessCard } from '../components/UsageAccessCard';
+import { OverlayPermissionCard } from '../components/OverlayPermissionCard';
 import { TimerPill } from '../components/TimerPill';
 import { StatCard } from '../components/StatCard';
 import { formatDurationHuman, formatTime, formatRelativeUntil } from '../utils/time';
@@ -36,15 +37,18 @@ export function HomeScreen() {
   const schedules = useScheduleStore();
   const [accessibilityEnabled, setAccessibilityEnabled] = useState<boolean | null>(null);
   const [usageAccessEnabled, setUsageAccessEnabled] = useState<boolean | null>(null);
+  const [overlayEnabled, setOverlayEnabled] = useState<boolean | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const checkPermissions = useCallback(async () => {
-    const [acc, usage] = await Promise.all([
+    const [acc, usage, overlay] = await Promise.all([
       AppBlocker.isAccessibilityEnabled(),
       AppBlocker.isUsageAccessEnabled(),
+      AppBlocker.canDrawOverOtherApps(),
     ]);
     setAccessibilityEnabled(acc);
     setUsageAccessEnabled(usage);
+    setOverlayEnabled(overlay);
   }, []);
 
   useFocusEffect(
@@ -64,7 +68,7 @@ export function HomeScreen() {
     ]).then(() => checkPermissions());
     // Re-render every minute so "next schedule in 5 min" stays fresh.
     const id = setInterval(() => {
-      setRefreshing((r) => r); // trigger a re-render without showing the spinner
+      setRefreshing((r) => r);
     }, 60 * 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -82,7 +86,6 @@ export function HomeScreen() {
   const totalBlockedMs = history.getTotalBlockedMs();
   const weekBlockedMs = history.getRecentBlockedMs(7);
 
-  // Compute the next upcoming schedule that's not currently active.
   const nextSchedule = useMemo(() => {
     const allNext = schedules.getAllNextFire();
     const upcoming = allNext.find(
@@ -108,14 +111,15 @@ export function HomeScreen() {
           <Text style={styles.title}>FocusGuard</Text>
         </View>
 
+        {/* Permission cards — shown in priority order, only one at a time */}
         {accessibilityEnabled === false && (
           <PermissionCard onGrant={() => AppBlocker.openAccessibilitySettings()} />
         )}
-
-        {/* Only show Usage Access card if Accessibility is already granted
-            but Usage Access is not. Avoids stacking two permission cards. */}
         {accessibilityEnabled === true && usageAccessEnabled === false && (
           <UsageAccessCard onGrant={() => AppBlocker.openUsageAccessSettings()} />
+        )}
+        {accessibilityEnabled === true && usageAccessEnabled === true && overlayEnabled === false && (
+          <OverlayPermissionCard onGrant={() => AppBlocker.requestDrawOverOtherApps()} />
         )}
 
         {hasActiveSession && activeSession ? (

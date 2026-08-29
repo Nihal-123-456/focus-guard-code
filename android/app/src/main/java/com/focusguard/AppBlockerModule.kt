@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.net.Uri
 import android.os.Build
 import android.os.Process
 import android.provider.Settings
@@ -55,6 +56,7 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
         val status = Arguments.createMap()
         status.putBoolean("isAccessibilityEnabled", isAccessibilityServiceEnabled())
         status.putBoolean("isUsageAccessEnabled", isUsageAccessEnabled())
+        status.putBoolean("canDrawOverOtherApps", canDrawOverOtherApps())
         status.putBoolean("isBlockingActive", storedPrefs.getBoolean(KEY_BLOCKING_ACTIVE, false))
         status.putString("blockedPackage", storedPrefs.getString(KEY_LAST_BLOCKED_PACKAGE, null))
         if (storedPrefs.contains(KEY_LAST_BLOCKED_AT)) {
@@ -96,6 +98,14 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
+    private fun canDrawOverOtherApps(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Settings.canDrawOverlays(reactApplicationContext)
+        } else {
+            true
+        }
+    }
+
     @ReactMethod
     fun openAccessibilitySettings(promise: Promise) {
         try {
@@ -135,6 +145,37 @@ class AppBlockerModule(reactContext: ReactApplicationContext) :
             promise.resolve(null)
         } catch (error: Exception) {
             promise.reject("USAGE_ACCESS_SETTINGS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun canDrawOverOtherApps(promise: Promise) {
+        try {
+            promise.resolve(canDrawOverOtherApps())
+        } catch (error: Exception) {
+            promise.reject("OVERLAY_PERMISSION_STATUS_ERROR", error)
+        }
+    }
+
+    @ReactMethod
+    fun requestDrawOverOtherApps(promise: Promise) {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${reactApplicationContext.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactApplicationContext.startActivity(intent)
+            promise.resolve(null)
+        } catch (error: Exception) {
+            try {
+                val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:${reactApplicationContext.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactApplicationContext.startActivity(fallback)
+                promise.resolve(null)
+            } catch (e2: Exception) {
+                promise.reject("OVERLAY_PERMISSION_SETTINGS_ERROR", e2)
+            }
         }
     }
 

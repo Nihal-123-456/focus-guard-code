@@ -58,16 +58,22 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             targetPackage
         }
 
+        Log.i(TAG, "→ Launching overlay for $targetPackage (label=$blockedLabel)")
+
         val intent = Intent(this, BlockingOverlayActivity::class.java).apply {
-            addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP,
-            )
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_PACKAGE, targetPackage)
             putExtra(BlockingOverlayActivity.EXTRA_BLOCKED_LABEL, blockedLabel)
         }
-        startActivity(intent)
+
+        try {
+            startActivity(intent)
+            Log.i(TAG, "✅ startActivity succeeded for $targetPackage")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ startActivity failed for $targetPackage: ${e.message}", e)
+        }
     }
 
     private fun currentForegroundPackage(): String {
@@ -124,7 +130,7 @@ class AppBlockerAccessibilityService : AccessibilityService() {
             return
         }
 
-        Log.i(TAG, "🚫 Blocking foreground package: $targetPackage")
+        Log.i(TAG, "🚫 Detected blocked app in foreground: $targetPackage")
         storedPrefs.edit()
             .putString(KEY_LAST_BLOCKED_PACKAGE, targetPackage)
             .putLong(KEY_LAST_BLOCKED_AT, now)

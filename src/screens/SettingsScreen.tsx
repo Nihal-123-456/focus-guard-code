@@ -19,17 +19,20 @@ export function SettingsScreen() {
   const settings = useSettingsStore();
   const [accessibilityEnabled, setAccessibilityEnabled] = useState<boolean | null>(null);
   const [usageAccessEnabled, setUsageAccessEnabled] = useState<boolean | null>(null);
+  const [overlayEnabled, setOverlayEnabled] = useState<boolean | null>(null);
   const [blockerStatus, setBlockerStatus] = useState<{
     isBlockingActive: boolean;
   } | null>(null);
 
   const refreshStatus = useCallback(async () => {
-    const [acc, usage] = await Promise.all([
+    const [acc, usage, overlay] = await Promise.all([
       AppBlocker.isAccessibilityEnabled(),
       AppBlocker.isUsageAccessEnabled(),
+      AppBlocker.canDrawOverOtherApps(),
     ]);
     setAccessibilityEnabled(acc);
     setUsageAccessEnabled(usage);
+    setOverlayEnabled(overlay);
     try {
       const status = await AppBlocker.getStatus();
       setBlockerStatus({ isBlockingActive: status.isBlockingActive });
@@ -55,15 +58,18 @@ export function SettingsScreen() {
           <Text style={styles.title}>Settings</Text>
         </View>
 
-        {/* Accessibility permission status */}
+        {/* Permissions card */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Accessibility permission</Text>
+          <Text style={styles.cardTitle}>Permissions</Text>
           <Text style={styles.cardDesc}>
-            Required for FocusGuard to block apps during focus sessions.
+            All three permissions are required for blocking to work reliably.
           </Text>
 
           <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>Service status</Text>
+            <View style={styles.statusLeft}>
+              <Text style={styles.statusLabel}>Accessibility</Text>
+              <Text style={styles.statusHint}>Listens for app launches</Text>
+            </View>
             <View
               style={[
                 styles.statusBadge,
@@ -81,16 +87,19 @@ export function SettingsScreen() {
                 ]}
               >
                 {accessibilityEnabled === null
-                  ? 'Checking…'
+                  ? '…'
                   : accessibilityEnabled
-                    ? 'Enabled'
-                    : 'Disabled'}
+                    ? 'ON'
+                    : 'OFF'}
               </Text>
             </View>
           </View>
 
           <View style={styles.statusRow}>
-            <Text style={styles.statusLabel}>Usage access</Text>
+            <View style={styles.statusLeft}>
+              <Text style={styles.statusLabel}>Usage access</Text>
+              <Text style={styles.statusHint}>Detects foreground app</Text>
+            </View>
             <View
               style={[
                 styles.statusBadge,
@@ -108,17 +117,48 @@ export function SettingsScreen() {
                 ]}
               >
                 {usageAccessEnabled === null
-                  ? 'Checking…'
+                  ? '…'
                   : usageAccessEnabled
-                    ? 'Enabled'
-                    : 'Disabled'}
+                    ? 'ON'
+                    : 'OFF'}
               </Text>
             </View>
           </View>
 
-          {usageAccessEnabled === false && (
+          <View style={styles.statusRow}>
+            <View style={styles.statusLeft}>
+              <Text style={styles.statusLabel}>Display over apps</Text>
+              <Text style={styles.statusHint}>Shows blocking screen over blocked apps</Text>
+            </View>
+            <View
+              style={[
+                styles.statusBadge,
+                overlayEnabled
+                  ? styles.statusBadgeOn
+                  : styles.statusBadgeOff,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusBadgeText,
+                  overlayEnabled
+                    ? styles.statusBadgeTextOn
+                    : styles.statusBadgeTextOff,
+                ]}
+              >
+                {overlayEnabled === null
+                  ? '…'
+                  : overlayEnabled
+                    ? 'ON'
+                    : 'OFF'}
+              </Text>
+            </View>
+          </View>
+
+          {(usageAccessEnabled === false || overlayEnabled === false) && (
             <Text style={styles.warningText}>
-              ⚠️ Without Usage Access, blocking may not work reliably. Tap below to grant.
+              ⚠️ Blocking will not work until all three permissions are ON.
+              Tap the buttons below to grant the missing ones.
             </Text>
           )}
 
@@ -143,6 +183,13 @@ export function SettingsScreen() {
             onPress={() => AppBlocker.openUsageAccessSettings()}
           >
             <Text style={styles.cardButtonText}>Open usage access settings</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.cardButton, styles.cardButtonSecondary]}
+            onPress={() => AppBlocker.requestDrawOverOtherApps()}
+          >
+            <Text style={styles.cardButtonText}>Open display-over-apps settings</Text>
           </Pressable>
 
           <Pressable style={styles.cardLink} onPress={refreshStatus}>
@@ -364,9 +411,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  statusLeft: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
   statusLabel: {
     ...typography.bodySmall,
     color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  statusHint: {
+    ...typography.caption,
+    color: colors.textTertiary,
+    fontSize: 10,
+    marginTop: 2,
   },
   statusValue: {
     ...typography.bodySmall,
@@ -386,7 +444,7 @@ const styles = StyleSheet.create({
   },
   statusBadgeText: {
     ...typography.caption,
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 11,
   },
   statusBadgeTextOn: {
